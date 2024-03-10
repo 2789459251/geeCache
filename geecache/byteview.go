@@ -1,4 +1,4 @@
-package geeCache
+package geecache
 
 /*只能读，不可修改，因为lru有缓存添加，删除;这只是一个可视的结构，返回的是备份*/
 type ByteView struct {
