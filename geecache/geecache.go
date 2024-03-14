@@ -23,8 +23,9 @@ GetterFunc实现get方法，实质上是调用了自己
 
 type Group struct {
 	name      string
-	getter    Getter
+	getter    Getter //缓存未命中，获取值的方法
 	mainCache cache
+	peers     PeerPicker //服务端
 }
 
 var (
@@ -32,6 +33,12 @@ var (
 	groups = make(map[string]*Group) //分布式缓存的体现
 )
 
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("注册的服务端已超过一台")
+	}
+	g.peers = peers
+}
 func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 	if getter == nil {
 		panic("nil Getter") // 数据源转换成字节类型
@@ -63,6 +70,14 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.load(key)
 }
 func (g *Group) load(key string) (value ByteView, err error) {
+	if g.peers != nil {
+		if peer, ok := g.peers.PickPeer(key); ok {
+			if value, err = g.getFromPeer(peer, key); err == nil {
+				return value, err
+			}
+			log.Println("从远程节点中获取缓存失败", err)
+		}
+	}
 	return g.getLocally(key)
 }
 func (g *Group) getLocally(key string) (ByteView, error) {
@@ -76,4 +91,11 @@ func (g *Group) getLocally(key string) (ByteView, error) {
 }
 func (g *Group) populateCache(key string, value ByteView) {
 	g.mainCache.add(key, value)
+}
+func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
 }

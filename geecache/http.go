@@ -2,16 +2,26 @@ package geecache
 
 import (
 	"fmt"
+	"geeCache/geecache/consistenthash"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 )
 
-const defaultBasePath = "/_geecache/"
+const (
+	defaultBasePath = "/_geecache/"
+	defaultReplicas = 50
+)
+
+var _PeerPicker = (*HTTPPool)(nil)
 
 type HTTPPool struct {
-	self     string //主机和端口
-	basePath string
+	self        string //主机和端口
+	basePath    string
+	mu          sync.Mutex
+	peers       *consistenthash.Map
+	httpGetters map[string]*httpGetter //客户端baseurl->分布式节点客户端
 }
 
 func NewHTTPPool(self string) *HTTPPool {
@@ -19,6 +29,27 @@ func NewHTTPPool(self string) *HTTPPool {
 		self:     self,
 		basePath: defaultBasePath,
 	}
+}
+
+func (p *HTTPPool) Set(peers ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.peers = consistenthash.New(defaultReplicas, nil) //哈希环及其对应的节点与虚拟节点
+	p.peers.Add(peers...)                              //添加虚拟节点与真实节点
+	p.httpGetters = make(map[string]*httpGetter, len(peers))
+	for _, peer := range peers {
+		p.httpGetters[peer] = &httpGetter{baseURL: peer + p.basePath} //将真实节点名称与客户端映射
+	}
+}
+func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if peer := p.peers.Get(key); peer != "" && peer != p.self { //peer :真实节点名称
+		p.Log("匹配远程节点：%s", peer)
+		return p.httpGetters[peer], true
+	}
+	return nil, false
 }
 func (p *HTTPPool) Log(farmat string, v ...interface{}) {
 	log.Printf("[server %s] %s", p.self, fmt.Sprintf(farmat, v...))
