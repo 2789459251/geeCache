@@ -3,6 +3,8 @@ package geecache
 import (
 	"fmt"
 	"geeCache/geecache/consistenthash"
+	pb "geeCache/geecache/geecachepb"
+	"google.golang.org/protobuf/proto"
 	"log"
 	"net/http"
 	"strings"
@@ -77,6 +79,10 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 	w.Header().Set("Content-Type", "application/obtet-stream")
-	w.Write(view.ByteSlice())
+	w.Write(body)
 }

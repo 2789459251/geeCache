@@ -2,6 +2,8 @@ package geecache
 
 import (
 	"fmt"
+	pb "geeCache/geecache/geecachepb"
+	"google.golang.org/protobuf/proto"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -12,7 +14,7 @@ type PeerPicker interface {
 }
 
 type PeerGetter interface {
-	Get(group string, key string) ([]byte, error) //一个分布式节点--组名+key值获取 缓存
+	Get(in *pb.Request, out *pb.Response) error //一个分布式节点--组名+key值获取 缓存
 }
 type httpGetter struct { //httpGetter是一个分布式节点同时也是一个客户端
 	baseURL string //将要访问的远程节点
@@ -20,20 +22,23 @@ type httpGetter struct { //httpGetter是一个分布式节点同时也是一个�
 
 var _PeerGetter = (*httpGetter)(nil) //接口类型变量赋值为nil
 
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
-	u := fmt.Sprintf("%v%v/%v", h.baseURL, url.QueryEscape(group), url.QueryEscape(key))
-	res, err := http.Get(u)
+func (h *httpGetter) Get(in *pb.Request, out *pb.Response) error {
+	u := fmt.Sprintf("%v%v/%v", h.baseURL, url.QueryEscape(in.GetGroup()), url.QueryEscape(in.GetKey()))
+	res, err := http.Get(u) //这就是路由的新请求
 	if err != nil {
-		return nil, err //
+		return err //
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("拒绝服务：%v", res.Status)
+		return fmt.Errorf("拒绝服务：%v", res.Status)
 	}
 	bytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应体：%v", err)
+		return fmt.Errorf("读取响应体：%v", err)
 	}
-	return bytes, nil
+	if err = proto.Unmarshal(bytes, out); err != nil {
+		return fmt.Errorf("解码失败:%v", err)
+	}
+	return nil
 } //客户端
